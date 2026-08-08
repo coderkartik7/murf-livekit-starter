@@ -44,13 +44,17 @@ export async function POST(req: Request) {
       );
     }
       
+    // Read user role from request (body or url)
+    const { searchParams } = new URL(req.url);
+    const userRole = searchParams.get('user') || body?.user || 'customer';
+
     // Generate participant token
     const participantName = 'user';
     const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
     const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
 
     const participantToken = await createParticipantToken(
-      { identity: participantIdentity, name: participantName },
+      { identity: participantIdentity, name: participantName, metadata: userRole },
       roomName,
       roomConfig
     );

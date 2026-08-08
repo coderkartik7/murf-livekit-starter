@@ -12,6 +12,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
 import { getSandboxTokenSource } from '@/lib/utils';
+import { Header } from '@/components/app/header';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
 
@@ -41,7 +42,8 @@ export function App({ appConfig }: AppProps) {
   return (
     <AgentSessionProvider session={session}>
       <AppSetup />
-      <main className="grid h-svh grid-cols-1 place-content-center">
+      <Header />
+      <main className="w-full h-full">
         <ViewController appConfig={appConfig} />
       </main>
       <StartAudioButton label="Start Audio" />

@@ -303,7 +303,7 @@ export function AgentControlBar({
         <AgentChatInput
           chatOpen={isChatOpen || isChatOpenUncontrolled}
           onSend={handleSendMessage}
-          className={cn(variant === 'livekit' && '[&_button]:rounded-full')}
+          className={cn(variant === 'livekit' && '[&_button]:rounded-full', 'w-full max-w-full')}
         />
       </motion.div>
 

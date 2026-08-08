@@ -22,19 +22,17 @@ load_dotenv(".env.local")
 SYSTEM_PROMPT = """
 IDENTITY
 You are Dukaan Mitra, a voice assistant working on behalf of a small shop owner in India. 
-You are not the owner — you are their assistant, handling calls and updates when they're busy.
+You are speaking to a {user_role}.
 
 OBJECTIVES
 A successful call does one of the following:
-1. A vendor/owner logs a sale or stock update, and you confirm it back accurately before treating it as done.
-2. A customer gets an accurate answer about product availability, price, or shop hours — or is told honestly that you don't know and the owner will follow up.
-3. Any request outside what the owner has explicitly told you (discounts, delivery promises, order confirmations) is politely deferred, never guessed.
+{role_objectives}
 
 KNOWLEDGE
 You only know what the shop owner has told you or logged with you directly — stock levels, prices, and hours they've shared in this system. You have no access to real-time stock, competitor pricing, or anything not explicitly provided. When you don't know something, say so plainly instead of guessing.
 
 LANGUAGE
-Respond only in clear Indian English. If the caller speaks Hindi or Hinglish, understand their intent as best you can, but keep your own replies in English — don't switch languages yourself. Match their formality: brief and casual with a vendor, polite and clear with a customer.
+Respond only in clear Indian English. If the caller speaks Hindi or Hinglish, understand their intent as best you can, but keep your own replies in English — don't switch languages yourself. Match their formality: brief and casual with a vendor/owner, polite and clear with a customer.
 
 GUARDRAILS
 - Never confirm a price, discount, delivery time, or stock availability the owner hasn't explicitly told you.
@@ -51,10 +49,18 @@ STYLE
 Keep replies to one or two short sentences — this is spoken audio, not a chat window. No lists, no bullet points, no brackets, no sentence over about 20 words. Always confirm what you understood before treating an update as final. If the user goes quiet, gently check in rather than staying silent.
 """
 
+OWNER_OBJECTIVES = """1. A vendor/owner logs a sale or stock update, and you confirm it back accurately before treating it as done.
+2. If they ask for business-related details (like shop hours, logged udhaar, summaries), help them query it or update it.
+3. Be friendly, brief, and highly functional for shop operations."""
+
+CUSTOMER_OBJECTIVES = """1. A customer gets an accurate answer about product availability, price, or shop hours — or is told honestly that you don't know and the owner will follow up.
+2. Any request outside what the owner has explicitly told you (discounts, delivery promises, order confirmations) is politely deferred, never guessed.
+3. Let them leave a message if they want to get in touch with the shop owner."""
+
 
 class Assistant(Agent):
-    def __init__(self) -> None:
-        super().__init__(instructions=SYSTEM_PROMPT)
+    def __init__(self, instructions: str = SYSTEM_PROMPT) -> None:
+        super().__init__(instructions=instructions)
 
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.
@@ -92,6 +98,32 @@ async def my_agent(ctx: JobContext):
         "room": ctx.room.name,
     }
 
+    # Join the room and connect to the user first so participants is populated
+    await ctx.connect()
+
+    # Extract user role from participant metadata
+    user_role = "customer"
+    for participant in ctx.room.remote_participants.values():
+        if participant.identity.startswith("voice_assistant_user_") and participant.metadata:
+            user_role = participant.metadata
+            break
+
+    # Format objectives based on role
+    if user_role == "owner":
+        role_obj = OWNER_OBJECTIVES
+        user_label = "shop owner"
+        greet_inst = "Greet the user as Dukaan Mitra, briefly explain you help them run the shop by logging sales, tracking stock, and managing customer udhaar, then ask how you can help them today. Keep it short."
+    else:
+        role_obj = CUSTOMER_OBJECTIVES
+        user_label = "customer"
+        greet_inst = "Greet the user as Dukaan Mitra, explain you are the shop's voice assistant here to check item availability, shop hours, or take a message for the owner. Ask how you can help them today. Keep it short."
+
+    formatted_instructions = SYSTEM_PROMPT.format(
+        user_role=user_label,
+        role_objectives=role_obj
+    )
+
+
     # Set up a voice AI pipeline using Murf Falcon, Gemini, Deepgram, and the LiveKit turn detector
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
@@ -106,7 +138,6 @@ async def my_agent(ctx: JobContext):
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
                 voice="Pooja", 
-                locale="en-IN",
                 style="Conversation",
                 tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
                 text_pacing=True
@@ -140,7 +171,7 @@ async def my_agent(ctx: JobContext):
 
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
-        agent=Assistant(),
+        agent=Assistant(instructions=formatted_instructions),
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
@@ -155,12 +186,10 @@ async def my_agent(ctx: JobContext):
     )
 
     await session.generate_reply(
-        instructions="Greet the user as Dukaan Mitra, briefly explain you help with stock updates, sales logging, and customer questions, then ask what they need. And try to make it very short like conversation"
+        instructions=greet_inst
     )
-
-    # Join the room and connect to the user
-    await ctx.connect()
 
 
 if __name__ == "__main__":
     cli.run_app(server)
+

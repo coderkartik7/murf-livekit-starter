@@ -121,8 +121,8 @@ export function AudioVisualizer({
       let sizedClassName = cn('size-[300px] md:size-[450px]', className);
 
       if (audioVisualizerBarCount <= 5) {
-        size = 'xl';
-        sizedClassName = cn('size-[450px] *:min-h-[64px] *:w-[64px] gap-4', className);
+        size = 'lg';
+        sizedClassName = cn('h-[120px] *:min-h-[36px] *:w-[36px] gap-3 items-center justify-center', className);
       } else if (audioVisualizerBarCount <= 10) {
         size = 'lg';
         sizedClassName = cn('size-[450px]', className);
