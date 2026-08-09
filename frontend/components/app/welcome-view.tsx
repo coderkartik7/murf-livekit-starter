@@ -1,96 +1,11 @@
 import React, { useState } from 'react';
-import Image from 'next/image';
 import {
-  Store,
-  Headset,
-  Clock,
-  CreditCard,
-  BarChart3,
-  TrendingUp,
-  AlertCircle,
-  RefreshCw,
-  Search,
-  FileText,
-  MapPin,
-  MessageSquare,
-  Gift,
-  X,
-  Volume2
-} from 'lucide-react';
+  OWNER_FEATURES,
+  CUSTOMER_FEATURES,
+  type FeatureCard,
+} from '@/lib/features-config';
+import { AlertCircle, RefreshCw, X } from 'lucide-react';
 
-interface FeatureCard {
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-  statusText?: string;
-}
-
-const OWNER_FEATURES: FeatureCard[] = [
-  {
-    icon: <Store className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Sales Ledger',
-    desc: 'Log daily sales and stock updates instantly by voice',
-  },
-  {
-    icon: <Headset className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Customer Support',
-    desc: 'Handle order and item availability queries automatically',
-  },
-  {
-    icon: <Clock className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Shop Hours',
-    desc: 'Manage and broadcast your store open & close timings',
-  },
-  {
-    icon: <CreditCard className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Credit Tracker',
-    desc: 'Keep clear tabs on customer udhaar and pending balances',
-  },
-  {
-    icon: <BarChart3 className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Daily Summary',
-    desc: 'Listen to a comprehensive spoken recap of day activity',
-  },
-  {
-    icon: <TrendingUp className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Market Watch',
-    desc: 'Track local competitor pricing and demand trends over time',
-  },
-];
-
-const CUSTOMER_FEATURES: FeatureCard[] = [
-  {
-    icon: <Search className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Check Availability',
-    desc: 'Ask if a product or grocery item is in stock right now',
-  },
-  {
-    icon: <FileText className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Order Status',
-    desc: 'Check the delivery or pickup progress of your order',
-  },
-  {
-    icon: <MapPin className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Shop Hours & Location',
-    desc: 'Find out when the shop is open and where to visit',
-  },
-  {
-    icon: <Volume2 className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Talk to the Shop',
-    desc: 'Get general queries answered instantly by voice',
-  },
-  {
-    icon: <MessageSquare className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Leave a Message',
-    desc: 'Leave word or requests for the shop owner directly',
-  },
-  {
-    icon: <Gift className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Nearby Offers',
-    desc: 'Hear about current deals and exclusive local discounts',
-    statusText: 'Upcoming',
-  },
-];
 
 interface WelcomeViewProps {
   startButtonText?: string;
@@ -174,8 +89,8 @@ export const WelcomeView = ({
             {/* Animated terracotta soundwave/ring centerpiece design */}
             <div className="relative w-[240px] h-[240px] md:w-[300px] md:h-[300px] flex items-center justify-center">
               {/* Outer Pulsing Glow Rings */}
-              <div className="absolute inset-0 rounded-full border-4 border-[#C1502E]/10 animate-[ping_3s_infinite] motion-reduce:animate-none" />
-              <div className="absolute inset-4 rounded-full border-2 border-[#C1502E]/25 animate-[ping_2s_infinite] motion-reduce:animate-none" />
+              <div className="absolute inset-0 rounded-full border-4 border-[#C1502E]/10 animate-[ping_3s_infinite] motion-reduce:animate-none pointer-events-none" />
+              <div className="absolute inset-4 rounded-full border-2 border-[#C1502E]/25 animate-[ping_2s_infinite] motion-reduce:animate-none pointer-events-none" />
               
               {/* Central Solid Circle with Wave motif */}
               <div className="relative w-[180px] h-[180px] md:w-[220px] md:h-[220px] rounded-full border-3 border-[#1A1512] bg-[#FFFDF9] shadow-lg flex flex-col items-center justify-center overflow-hidden">

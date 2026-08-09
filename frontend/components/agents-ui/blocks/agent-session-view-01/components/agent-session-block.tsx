@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/shadcn/utils';
 import { TileLayout } from './tile-view';
 import { Loader2, Mic, CheckCircle2, RotateCcw } from 'lucide-react';
+import { ServicesSidebar } from '@/components/app/services-sidebar';
 
 const BOTTOM_VIEW_MOTION_PROPS: MotionProps = {
   variants: {
@@ -85,6 +86,8 @@ export interface AgentSessionView_01Props {
   audioVisualizerRadialRadius?: number;
   audioVisualizerWaveLineWidth?: number;
   className?: string;
+  /** The selected user role, used to show role-specific sidebar cards */
+  role?: 'owner' | 'customer';
 }
 
 export function AgentSessionView_01({
@@ -102,6 +105,7 @@ export function AgentSessionView_01({
   audioVisualizerRadialBarCount,
   audioVisualizerRadialRadius,
   audioVisualizerWaveLineWidth,
+  role = 'customer',
   ref,
   className,
   ...props
@@ -192,6 +196,9 @@ export function AgentSessionView_01({
       className={cn('bg-[#F0E4D3] text-[#1A1512] relative z-10 w-full overflow-hidden flex flex-col', className)}
       {...props}
     >
+      {/* Collapsible Services Sidebar */}
+      <ServicesSidebar role={role} />
+
       <Fade top className="absolute inset-x-0 top-0 z-10 h-16" />
 
       {/* Top Agent & Speaker Clarity Indicator Bar */}

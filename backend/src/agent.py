@@ -8,13 +8,17 @@ from livekit.agents import (
     AgentSession,
     JobContext,
     JobProcess,
+    RunContext,
     cli,
+    function_tool,
     inference,
     tokenize,
     room_io,
 )
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+
+import db
 
 logger = logging.getLogger("agent")
 
@@ -31,8 +35,17 @@ A successful call does one of the following:
 KNOWLEDGE
 You only know what the shop owner has told you or logged with you directly — stock levels, prices, and hours they've shared in this system. You have no access to real-time stock, competitor pricing, or anything not explicitly provided. When you don't know something, say so plainly instead of guessing.
 
-LANGUAGE
+LANGUAGE & SCRIPT
 Respond only in clear Indian English. If the caller speaks Hindi or Hinglish, understand their intent as best you can, but keep your own replies in English — don't switch languages yourself. Match their formality: brief and casual with a vendor/owner, polite and clear with a customer.
+Always write every language in its own native script.
+- Hindi → Devanagari (नमस्ते), never romanized (never "namaste").
+- Apply the same rule to any other non-English language used.
+
+MEMORY
+At the start of a conversation, once you know who you're speaking with, use the lookup_caller function to check if they're a returning caller.
+- If found: greet them by name and reference something specific from their saved facts (e.g. past orders, preferred delivery slot) to continue naturally from last time.
+- If not found: proceed as a first-time interaction.
+Before saving any new information about the caller, always ask their permission first — e.g. "Is it okay if I remember this for next time?" Only call save_caller_info if they agree. If they decline, do not save anything, and don't ask again in the same call.
 
 GUARDRAILS
 - Never confirm a price, discount, delivery time, or stock availability the owner hasn't explicitly told you.
@@ -62,22 +75,50 @@ class Assistant(Agent):
     def __init__(self, instructions: str = SYSTEM_PROMPT) -> None:
         super().__init__(instructions=instructions)
 
-    # To add tools, use the @function_tool decorator.
-    # Here's an example that adds a simple weather tool.
-    # You also have to add `from livekit.agents import function_tool, RunContext` to the top of this file
-    # @function_tool
-    # async def lookup_weather(self, context: RunContext, location: str):
-    #     """Use this tool to look up current weather information in the given location.
-    #
-    #     If the location is not supported by the weather service, the tool will indicate this. You must tell the user the location's weather is unavailable.
-    #
-    #     Args:
-    #         location: The location to look up weather information for (e.g. city name)
-    #     """
-    #
-    #     logger.info(f"Looking up weather for {location}")
-    #
-    #     return "sunny with a temperature of 70 degrees."
+    @function_tool
+    async def lookup_caller(self, context: RunContext, user_id: str):
+        """Look up a returning caller's saved info by their user ID.
+        Call this early in the conversation once you have identified
+        who you're speaking with, to check if they're a returning caller.
+
+        Args:
+            user_id: Caller identifier — phone number or normalized name
+                     (lowercased, spaces replaced with underscores).
+        """
+        logger.info("Looking up caller: %s", user_id)
+        record = await db.get_caller(user_id)
+        if record:
+            logger.info("Found returning caller: %s", user_id)
+            return record
+        logger.info("Caller not found: %s", user_id)
+        return {"status": "not_found", "message": "No saved info for this caller."}
+
+    @function_tool
+    async def save_caller_info(
+        self,
+        context: RunContext,
+        user_id: str,
+        name: str,
+        role: str,
+        language_preference: str,
+        facts: dict,
+    ):
+        """Save or update what you've learned about this caller.
+        Only call this AFTER the caller has explicitly agreed to let
+        you remember the information.
+
+        Args:
+            user_id: Caller identifier — phone number or normalized name
+                     (lowercased, spaces replaced with underscores).
+            name: The caller's display name.
+            role: Either "owner" or "customer".
+            language_preference: The caller's preferred language.
+            facts: Dict of learned facts — e.g. past_orders,
+                   usual_quantities, preferred_delivery_slot.
+        """
+        logger.info("Saving caller info for: %s", user_id)
+        await db.upsert_caller(user_id, name, role, language_preference, facts)
+        return {"status": "saved", "user_id": user_id}
 
 
 server = AgentServer()
@@ -85,6 +126,7 @@ server = AgentServer()
 
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
+    db.init_db()
 
 
 server.setup_fnc = prewarm
@@ -137,10 +179,10 @@ async def my_agent(ctx: JobContext):
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
-                voice="Pooja", 
+                voice="Anisha",
                 style="Conversation",
                 tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
-                text_pacing=True
+                text_pacing=True,
             ),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
