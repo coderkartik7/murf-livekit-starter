@@ -5,6 +5,7 @@ import {
   type FeatureCard,
 } from '@/lib/features-config';
 import { AlertCircle, RefreshCw, X } from 'lucide-react';
+import { FeatureModal } from './feature-modal';
 
 
 interface WelcomeViewProps {
@@ -170,41 +171,12 @@ export const WelcomeView = ({
         </div>
       </div>
 
-      {/* Clean Coming Soon / Detailed Modal Panel */}
+      {/* Feature Modal Panel */}
       {selectedFeature && (
-        <div className="fixed inset-0 bg-[#1A1512]/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-[#FFFDF9] border-2 border-[#1A1512] rounded-3xl p-6 md:p-8 max-w-md w-full shadow-xl flex flex-col gap-6 relative">
-            <button
-              onClick={() => setSelectedFeature(null)}
-              className="absolute top-4 right-4 p-1 rounded-full text-[#1A1512]/50 hover:text-[#C1502E] hover:bg-[#F0E4D3]/40 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-4">
-              <div className="p-3.5 rounded-2xl bg-[#F0E4D3]/60 text-[#C1502E]">
-                {selectedFeature.icon}
-              </div>
-              <h3 className="text-xl font-bold font-serif text-[#1A1512]" style={{ fontFamily: 'Georgia, serif' }}>
-                {selectedFeature.title}
-              </h3>
-            </div>
-            <div className="space-y-4">
-              <p className="text-sm text-[#1A1512]/80 leading-relaxed">
-                {selectedFeature.desc}
-              </p>
-              <div className="bg-[#F0E4D3]/40 p-4 rounded-xl border border-[#1A1512]/10 text-center">
-                <span className="text-xs font-bold text-[#C1502E] uppercase tracking-widest block mb-1">Coming soon</span>
-                <span className="text-xs text-[#1A1512]/70">This feature is on its way. Use voice assistant mode to ask directly!</span>
-              </div>
-            </div>
-            <button
-              onClick={() => setSelectedFeature(null)}
-              className="w-full bg-[#1A1512] text-[#FFFDF9] hover:bg-[#C1502E] transition-colors rounded-xl py-3 font-semibold text-sm cursor-pointer"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
+        <FeatureModal
+          title={selectedFeature.title}
+          onClose={() => setSelectedFeature(null)}
+        />
       )}
     </div>
   );

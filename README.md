@@ -229,6 +229,15 @@ Murf Falcon and LiveKit handle audio format internally. For advanced options, se
 
 ---
 
+## Data Storage & Integrations
+
+- **Market Watch**: Powered by live data fetched via the official Agmarknet / data.gov.in API with strict 5-second timeouts.
+- **Local Shop Data**: Everything else (Sales Ledger, Credit Tracker, Messages, Call History, Daily Summaries, Shop Hours) is stored locally in SQLite (`dukaan_mitra.db`) by design to keep the shop owner's private business data confidential and local to their device/server.
+- **Order Status**: Uses seeded demo data (`orders` table) since full order creation workflows are out of scope for this voice starter.
+
+---
+
+
 ## Project Structure
 
 ```

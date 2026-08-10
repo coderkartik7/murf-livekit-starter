@@ -12,13 +12,70 @@ interface FeatureModalProps {
 }
 
 function FeatureModal({ feature, onClose }: FeatureModalProps) {
+  const [productQuery, setProductQuery] = useState('');
+  const [orderQuery, setOrderQuery] = useState('ord_001');
+  const [loading, setLoading] = useState(false);
+  const [resultData, setResultData] = useState<any>(null);
+
+  // Auto-fetch for Shop Hours on mount
+  React.useEffect(() => {
+    if (feature.title === 'Shop Hours & Location') {
+      handleShopInfo();
+    }
+  }, [feature.title]);
+
+  const handleProductSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!productQuery.trim()) return;
+    setLoading(true);
+    setResultData(null);
+    try {
+      const res = await fetch(`http://localhost:8000/api/products/lookup?name=${encodeURIComponent(productQuery)}`);
+      const data = await res.json();
+      setResultData(data);
+    } catch (err) {
+      setResultData({ status: 'error', message: 'Failed to connect to shop server.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOrderCheck = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!orderQuery.trim()) return;
+    setLoading(true);
+    setResultData(null);
+    try {
+      const res = await fetch(`http://localhost:8000/api/orders/status?query=${encodeURIComponent(orderQuery)}`);
+      const data = await res.json();
+      setResultData(data);
+    } catch (err) {
+      setResultData({ status: 'error', message: 'Failed to fetch order status.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleShopInfo = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:8000/api/shop/info');
+      const data = await res.json();
+      setResultData(data);
+    } catch (err) {
+      setResultData({ status: 'error', message: 'Failed to load shop information.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-[#1A1512]/40 backdrop-blur-sm flex items-center justify-center p-4 z-[200]"
       onClick={onClose}
     >
       <div
-        className="bg-[#FFFDF9] border-2 border-[#1A1512] rounded-3xl p-6 md:p-8 max-w-md w-full shadow-xl flex flex-col gap-6 relative"
+        className="bg-[#FFFDF9] border-2 border-[#1A1512] rounded-3xl p-6 md:p-8 max-w-md w-full shadow-xl flex flex-col gap-5 relative max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -27,6 +84,7 @@ function FeatureModal({ feature, onClose }: FeatureModalProps) {
         >
           <X className="w-5 h-5" />
         </button>
+
         <div className="flex items-center gap-4">
           <div className="p-3.5 rounded-2xl bg-[#F0E4D3]/60 text-[#C1502E] shrink-0">
             {feature.icon}
@@ -35,22 +93,150 @@ function FeatureModal({ feature, onClose }: FeatureModalProps) {
             {feature.title}
           </h3>
         </div>
-        <div className="space-y-4">
-          <p className="text-sm text-[#1A1512]/80 leading-relaxed">{feature.desc}</p>
-          <div className="bg-[#F0E4D3]/40 p-4 rounded-xl border border-[#1A1512]/10 text-center">
-            <span className="text-xs font-bold text-[#C1502E] uppercase tracking-widest block mb-1">
-              Coming soon
-            </span>
-            <span className="text-xs text-[#1A1512]/70">
-              This feature is on its way. Use voice assistant mode to ask directly!
-            </span>
+
+        <p className="text-sm text-[#1A1512]/80 leading-relaxed">{feature.desc}</p>
+
+        {/* Feature 1: Check Availability */}
+        {feature.title === 'Check Availability' && (
+          <div className="space-y-4">
+            <form onSubmit={handleProductSearch} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="e.g. Milk, Bread, Rice"
+                value={productQuery}
+                onChange={(e) => setProductQuery(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm bg-[#F0E4D3]/30 border border-[#1A1512]/20 rounded-xl text-[#1A1512] focus:outline-none focus:border-[#C1502E]"
+              />
+              <button
+                type="submit"
+                disabled={loading || !productQuery.trim()}
+                className="px-4 py-2 bg-[#C1502E] text-[#FFFDF9] text-xs font-semibold rounded-xl hover:bg-[#A33E20] disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {loading ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+
+            {resultData && (
+              <div className="bg-[#F0E4D3]/40 p-4 rounded-xl border border-[#1A1512]/10 space-y-2">
+                {resultData.status === 'success' ? (
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-bold text-sm text-[#1A1512]">
+                        {resultData.primary_match.name}
+                      </span>
+                      <span className="text-xs font-semibold bg-[#C1502E]/10 text-[#C1502E] px-2 py-0.5 rounded">
+                        ₹{resultData.primary_match.price} / {resultData.primary_match.unit}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#1A1512]/70">
+                      Stock:{' '}
+                      <strong className={resultData.primary_match.stock_qty > 0 ? 'text-green-700' : 'text-red-600'}>
+                        {resultData.primary_match.stock_qty > 0
+                          ? `${resultData.primary_match.stock_qty} available`
+                          : 'Out of Stock'}
+                      </strong>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#C1502E] font-medium">{resultData.message}</p>
+                )}
+              </div>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* Feature 2: Order Status */}
+        {feature.title === 'Order Status' && (
+          <div className="space-y-4">
+            <form onSubmit={handleOrderCheck} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Order ID (e.g. ord_001) or user_rahul"
+                value={orderQuery}
+                onChange={(e) => setOrderQuery(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm bg-[#F0E4D3]/30 border border-[#1A1512]/20 rounded-xl text-[#1A1512] focus:outline-none focus:border-[#C1502E]"
+              />
+              <button
+                type="submit"
+                disabled={loading || !orderQuery.trim()}
+                className="px-4 py-2 bg-[#C1502E] text-[#FFFDF9] text-xs font-semibold rounded-xl hover:bg-[#A33E20] disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {loading ? 'Checking...' : 'Check'}
+              </button>
+            </form>
+
+            {resultData && (
+              <div className="bg-[#F0E4D3]/40 p-4 rounded-xl border border-[#1A1512]/10 space-y-2">
+                {resultData.status === 'success' ? (
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-sm text-[#1A1512]">
+                        Order #{resultData.latest_order.order_id}
+                      </span>
+                      <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#1A1512] text-[#FFFDF9]">
+                        {resultData.latest_order.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#1A1512]/80">
+                      Slot: <strong>{resultData.latest_order.delivery_slot}</strong>
+                    </p>
+                    <p className="text-xs text-[#1A1512]/80">
+                      Total: <strong>₹{resultData.latest_order.total}</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#C1502E] font-medium">{resultData.message}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Feature 3: Shop Hours & Location */}
+        {feature.title === 'Shop Hours & Location' && (
+          <div className="space-y-3">
+            {loading ? (
+              <div className="text-xs text-[#1A1512]/60 animate-pulse">Loading shop information...</div>
+            ) : resultData && resultData.status === 'success' ? (
+              <div className="bg-[#F0E4D3]/40 p-4 rounded-xl border border-[#1A1512]/10 space-y-2">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-[#C1502E] tracking-widest block">
+                    Operating Hours
+                  </span>
+                  <p className="text-sm font-semibold text-[#1A1512]">{resultData.hours}</p>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-[#C1502E] tracking-widest block">
+                    Address
+                  </span>
+                  <p className="text-xs text-[#1A1512]/80">{resultData.address}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-[#C1502E]">{resultData?.message || 'Unable to fetch shop details.'}</p>
+            )}
+          </div>
+        )}
+
+        {/* Default / Fallback cards */}
+        {feature.title !== 'Check Availability' &&
+          feature.title !== 'Order Status' &&
+          feature.title !== 'Shop Hours & Location' && (
+            <div className="bg-[#F0E4D3]/40 p-4 rounded-xl border border-[#1A1512]/10 text-center">
+              <span className="text-xs font-bold text-[#C1502E] uppercase tracking-widest block mb-1">
+                Voice Accessible
+              </span>
+              <span className="text-xs text-[#1A1512]/70">
+                You can ask the voice assistant directly during a live call!
+              </span>
+            </div>
+          )}
+
         <button
           onClick={onClose}
-          className="w-full bg-[#1A1512] text-[#FFFDF9] hover:bg-[#C1502E] transition-colors rounded-xl py-3 font-semibold text-sm cursor-pointer"
+          className="w-full bg-[#1A1512] text-[#FFFDF9] hover:bg-[#C1502E] transition-colors rounded-xl py-2.5 font-semibold text-sm cursor-pointer mt-2"
         >
-          Got it
+          Close
         </button>
       </div>
     </div>

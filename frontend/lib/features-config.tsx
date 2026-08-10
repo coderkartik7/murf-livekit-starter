@@ -29,8 +29,8 @@ export const OWNER_FEATURES: FeatureCard[] = [
   },
   {
     icon: <Headset className="w-6 h-6 text-[#C1502E]" />,
-    title: 'Customer Support',
-    desc: 'Handle order and item availability queries automatically',
+    title: 'Customer History',
+    desc: 'View recent call logs, caller summaries, and customer activity history',
   },
   {
     icon: <Clock className="w-6 h-6 text-[#C1502E]" />,

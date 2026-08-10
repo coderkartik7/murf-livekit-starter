@@ -17,6 +17,7 @@ from livekit.agents import (
 )
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+import services
 
 import db
 
@@ -47,6 +48,18 @@ At the start of a conversation, once you know who you're speaking with, use the 
 - If not found: proceed as a first-time interaction.
 Before saving any new information about the caller, always ask their permission first — e.g. "Is it okay if I remember this for next time?" Only call save_caller_info if they agree. If they decline, do not save anything, and don't ask again in the same call.
 
+TOOLS
+- lookup_product(product_name): Use when a customer asks if a product is in stock, or asks for product price/unit/availability.
+- check_order_status(query): Use when a customer asks about their order status, delivery progress, or slot using order ID or phone/user ID.
+- get_shop_info(): Use when a caller asks about shop opening/closing hours or store address/location.
+- log_sale(item_name, quantity, unit, amount): OWNER ONLY. Use when shop owner wants to log a sale. Always confirm parsed values before saving.
+- log_credit(customer_name, amount, credit_type, note): OWNER ONLY. Use when shop owner wants to log udhaar given or paid back. Always confirm details before saving.
+- check_credit_balance(customer_name): Use to check customer udhaar balance (given - paid).
+- leave_message_for_owner(from_name, message_text): Use when a customer wants to leave a message for the owner. Always confirm message text before saving.
+- get_daily_summary(date): OWNER ONLY. Use to give a spoken recap of daily sales amount, count, and best-selling item.
+- get_market_price(commodity, state, market): Use to look up live commodity market prices from Agmarknet API.
+
+
 GUARDRAILS
 - Never confirm a price, discount, delivery time, or stock availability the owner hasn't explicitly told you.
 - Never claim an item is "in stock" or "available" unless you actually have that information.
@@ -72,8 +85,9 @@ CUSTOMER_OBJECTIVES = """1. A customer gets an accurate answer about product ava
 
 
 class Assistant(Agent):
-    def __init__(self, instructions: str = SYSTEM_PROMPT) -> None:
+    def __init__(self, instructions: str = SYSTEM_PROMPT, user_role: str = "customer") -> None:
         super().__init__(instructions=instructions)
+        self.user_role = user_role
 
     @function_tool
     async def lookup_caller(self, context: RunContext, user_id: str):
@@ -101,7 +115,7 @@ class Assistant(Agent):
         name: str,
         role: str,
         language_preference: str,
-        facts: dict,
+        facts_json: str,
     ):
         """Save or update what you've learned about this caller.
         Only call this AFTER the caller has explicitly agreed to let
@@ -113,12 +127,136 @@ class Assistant(Agent):
             name: The caller's display name.
             role: Either "owner" or "customer".
             language_preference: The caller's preferred language.
-            facts: Dict of learned facts — e.g. past_orders,
-                   usual_quantities, preferred_delivery_slot.
+            facts_json: JSON string of learned facts — e.g. '{"past_orders": [], "preferred_delivery_slot": "Morning"}'
         """
+        import json
         logger.info("Saving caller info for: %s", user_id)
+        try:
+            facts = json.loads(facts_json)
+        except Exception:
+            facts = {}
         await db.upsert_caller(user_id, name, role, language_preference, facts)
         return {"status": "saved", "user_id": user_id}
+
+    @function_tool
+    async def get_shop_status(self, context: RunContext, shop_id: str = "primary_shop"):
+        """Retrieve the hours and address of a shop.
+
+        Args:
+            shop_id: Unique identifier for the shop (e.g. 'primary_shop').
+        """
+        import services
+        logger.info("Tool: get_shop_status called for shop_id=%s", shop_id)
+        return services.get_shop_status(shop_id)
+
+    @function_tool
+    async def get_shop_info(self, context: RunContext):
+        """Retrieve shop operating hours and physical store location/address."""
+        import services
+        logger.info("Tool: get_shop_info called")
+        return services.get_shop_info()
+
+    @function_tool
+    async def lookup_product(self, context: RunContext, product_name: str):
+        """Look up a product's price, unit size, and stock availability by name.
+
+        Args:
+            product_name: Name of the product or item to search for (e.g. 'milk', 'bread', 'rice').
+        """
+        import services
+        logger.info("Tool: lookup_product called for product_name=%s", product_name)
+        return services.lookup_product(product_name)
+
+    @function_tool
+    async def check_order_status(self, context: RunContext, query: str):
+        """Check order status and delivery slot for an order ID or customer user ID.
+
+        Args:
+            query: Order ID (e.g. 'ord_001') or customer ID / phone number (e.g. 'user_rahul').
+        """
+        import services
+        logger.info("Tool: check_order_status called for query=%s", query)
+        return services.check_order_status(query)
+
+    @function_tool
+    async def log_sale(self, context: RunContext, item_name: str, quantity: float, unit: str, amount: float):
+        """Log a completed sale into the sales ledger. OWNER ONLY.
+        Always confirm parsed item name, quantity, unit, and total amount with the caller before calling this tool.
+
+        Args:
+            item_name: Name of the item sold (e.g. 'Rice', 'Milk').
+            quantity: Quantity sold (e.g. 2, 0.5).
+            unit: Unit of measurement (e.g. 'kg', 'packet', 'liter').
+            amount: Total sale amount in Rupees (e.g. 120.0).
+        """
+        import services
+        logger.info("Tool: log_sale called for item=%s, qty=%s, amount=%s", item_name, quantity, amount)
+        return services.log_sale(item_name, quantity, unit, amount, user_role=self.user_role)
+
+    @function_tool
+    async def log_credit(self, context: RunContext, customer_name: str, amount: float, credit_type: str, note: str = ""):
+        """Log a customer credit ('udhaar') entry — either credit given or repayment paid. OWNER ONLY.
+        Always confirm customer name, amount, and whether it was given or paid with the caller before calling this tool.
+
+        Args:
+            customer_name: Customer's name (e.g. 'Ramesh', 'Rahul').
+            amount: Credit amount in Rupees (e.g. 500.0).
+            credit_type: 'given' (owner lent goods on credit) or 'paid' (customer paid back).
+            note: Optional note (e.g. 'Groceries purchase', 'UPI payment').
+        """
+        import services
+        logger.info("Tool: log_credit called for customer=%s, amt=%s, type=%s", customer_name, amount, credit_type)
+        return services.log_credit(customer_name, amount, credit_type, note, user_role=self.user_role)
+
+    @function_tool
+    async def check_credit_balance(self, context: RunContext, customer_name: str):
+        """Check current udhaar credit balance and transaction summary for a customer.
+
+        Args:
+            customer_name: Customer's name to query credit balance for.
+        """
+        import services
+        logger.info("Tool: check_credit_balance called for customer=%s", customer_name)
+        return services.check_credit_balance(customer_name)
+
+    @function_tool
+    async def leave_message_for_owner(self, context: RunContext, from_name: str, message_text: str):
+        """Leave a message or note for the shop owner.
+        Always confirm caller name and the message text with the caller before calling this tool.
+
+        Args:
+            from_name: Name of the caller leaving the message (defaults to 'Unknown' if not provided).
+            message_text: The message content to deliver to the owner.
+        """
+        import services
+        logger.info("Tool: leave_message_for_owner called from=%s", from_name)
+        return services.leave_message_for_owner(from_name, message_text)
+
+    @function_tool
+    async def get_daily_summary(self, context: RunContext, date: str = ""):
+        """Get daily sales aggregate summary including total revenue, transaction count, and top item.
+
+        Args:
+            date: Optional date string in YYYY-MM-DD format (defaults to today).
+        """
+        import services
+        logger.info("Tool: get_daily_summary called for date=%s", date)
+        return services.get_daily_summary(date)
+
+    @function_tool
+    async def get_market_price(self, context: RunContext, commodity: str, state: str = "", market: str = ""):
+        """Fetch live commodity market price trends from Agmarknet API.
+
+        Args:
+            commodity: Name of agricultural commodity (e.g. 'Rice', 'Potato', 'Wheat', 'Onion').
+            state: Optional Indian state name (e.g. 'Delhi', 'Punjab').
+            market: Optional market center name.
+        """
+        import services
+        logger.info("Tool: get_market_price called for commodity=%s", commodity)
+        return services.get_market_price(commodity, state, market)
+
+
 
 
 server = AgentServer()
@@ -213,8 +351,9 @@ async def my_agent(ctx: JobContext):
 
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
-        agent=Assistant(instructions=formatted_instructions),
+        agent=Assistant(instructions=formatted_instructions, user_role=user_role),
         room=ctx.room,
+
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=lambda params: (
@@ -227,9 +366,23 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
-    await session.generate_reply(
-        instructions=greet_inst
-    )
+    try:
+        await session.generate_reply(
+            instructions=greet_inst
+        )
+    finally:
+        # Automatic call summary logging at call wrap-up
+        try:
+            summary_text = f"Voice session completed for {user_label}."
+            services.log_call_summary(
+                caller_name="Shop Owner" if user_role == "owner" else "Customer",
+                caller_role=user_role,
+                short_summary=summary_text,
+            )
+            logger.info("Automatically logged call summary for role=%s", user_role)
+        except Exception as e:
+            logger.exception("Failed to log automatic call summary: %s", e)
+
 
 
 if __name__ == "__main__":

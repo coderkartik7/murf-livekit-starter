@@ -22,7 +22,7 @@ _db_path: Path = _DEFAULT_DB_PATH
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """Create the callers table if it doesn't exist.
+    """Create all required tables if they don't exist and seed default records.
 
     This runs synchronously and is meant to be called once during
     process pre-warm (before the async event loop is available).
@@ -31,9 +31,10 @@ def init_db(db_path: Path | None = None) -> None:
     if db_path is not None:
         _db_path = db_path
 
-    logger.info("Initializing caller database at %s", _db_path)
+    logger.info("Initializing database at %s", _db_path)
     conn = sqlite3.connect(str(_db_path))
     try:
+        # 1. Existing callers table
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS callers (
@@ -46,8 +47,180 @@ def init_db(db_path: Path | None = None) -> None:
             )
             """
         )
+
+        # 2. products (product_id, shop_id, name, price, unit, stock_qty, last_updated)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS products (
+                product_id   TEXT PRIMARY KEY,
+                shop_id      TEXT NOT NULL,
+                name         TEXT NOT NULL,
+                price        REAL NOT NULL,
+                unit         TEXT NOT NULL,
+                stock_qty    INTEGER NOT NULL,
+                last_updated TEXT NOT NULL
+            )
+            """
+        )
+
+        # 3. orders (order_id, customer_user_id, items_json, total, status, delivery_slot, created_at)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orders (
+                order_id         TEXT PRIMARY KEY,
+                customer_user_id TEXT NOT NULL,
+                items_json       TEXT NOT NULL,
+                total            REAL NOT NULL,
+                status           TEXT NOT NULL,
+                delivery_slot    TEXT NOT NULL,
+                created_at       TEXT NOT NULL
+            )
+            """
+        )
+
+        # 4. messages (message_id, from_user_id, from_name, message_text, created_at, read_flag)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS messages (
+                message_id   TEXT PRIMARY KEY,
+                from_user_id TEXT NOT NULL,
+                from_name    TEXT NOT NULL,
+                message_text TEXT NOT NULL,
+                created_at   TEXT NOT NULL,
+                read_flag    INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+
+        # 5. sales (sale_id, item_name, quantity, unit, amount, sale_date)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sales (
+                sale_id   TEXT PRIMARY KEY,
+                item_name TEXT NOT NULL,
+                quantity  REAL NOT NULL,
+                unit      TEXT NOT NULL,
+                amount    REAL NOT NULL,
+                sale_date TEXT NOT NULL
+            )
+            """
+        )
+
+        # 6. credit (credit_id, customer_name, amount, type, note, created_at)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS credit (
+                credit_id     TEXT PRIMARY KEY,
+                customer_name TEXT NOT NULL,
+                amount        REAL NOT NULL,
+                type          TEXT NOT NULL,
+                note          TEXT NOT NULL,
+                created_at    TEXT NOT NULL
+            )
+            """
+        )
+
+        # 7. call_log (call_id, caller_name, caller_role, call_date, short_summary)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS call_log (
+                call_id       TEXT PRIMARY KEY,
+                caller_name   TEXT NOT NULL,
+                caller_role   TEXT NOT NULL,
+                call_date     TEXT NOT NULL,
+                short_summary TEXT NOT NULL
+            )
+            """
+        )
+
+        # 8. shop_info (shop_id, hours_text, address_text, updated_at)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS shop_info (
+                shop_id      TEXT PRIMARY KEY,
+                hours_text   TEXT NOT NULL,
+                address_text TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            )
+            """
+        )
+
         conn.commit()
-        logger.info("Caller database ready.")
+        logger.info("All database tables created successfully.")
+
+        # Seed shop_info if empty
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM shop_info")
+        if cursor.fetchone()[0] == 0:
+            now = datetime.now(timezone.utc).isoformat()
+            cursor.execute(
+                """
+                INSERT INTO shop_info (shop_id, hours_text, address_text, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                ("primary_shop", "9 AM - 9 PM", "123 Main Street, New Delhi", now),
+            )
+            logger.info("Seeded default shop_info.")
+
+        # Seed 2 example rows in orders if empty
+        cursor.execute("SELECT COUNT(*) FROM orders")
+        if cursor.fetchone()[0] == 0:
+            now = datetime.now(timezone.utc).isoformat()
+            # Order 1
+            cursor.execute(
+                """
+                INSERT INTO orders (order_id, customer_user_id, items_json, total, status, delivery_slot, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "ord_001",
+                    "user_rahul",
+                    '[{"name": "Milk", "qty": 2, "price": 60}]',
+                    120.0,
+                    "Pending",
+                    "Morning (8 AM - 10 AM)",
+                    now,
+                ),
+            )
+            # Order 2
+            cursor.execute(
+                """
+                INSERT INTO orders (order_id, customer_user_id, items_json, total, status, delivery_slot, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "ord_002",
+                    "user_ananya",
+                    '[{"name": "Bread", "qty": 1, "price": 40}, {"name": "Eggs", "qty": 1, "price": 80}]',
+                    120.0,
+                    "Delivered",
+                    "Evening (6 PM - 8 PM)",
+                    now,
+                ),
+            )
+            logger.info("Seeded 2 example rows in orders.")
+
+        # Seed products if empty
+        cursor.execute("SELECT COUNT(*) FROM products")
+        if cursor.fetchone()[0] == 0:
+            now = datetime.now(timezone.utc).isoformat()
+            sample_products = [
+                ("prod_001", "primary_shop", "Full Cream Milk", 60.0, "1L packet", 15, now),
+                ("prod_002", "primary_shop", "Brown Bread", 40.0, "400g loaf", 8, now),
+                ("prod_003", "primary_shop", "Farm Fresh Eggs", 80.0, "tray of 12", 20, now),
+                ("prod_004", "primary_shop", "Basmati Rice", 110.0, "1kg pack", 50, now),
+                ("prod_005", "primary_shop", "Amul Butter", 55.0, "100g pack", 0, now),
+            ]
+            cursor.executemany(
+                """
+                INSERT INTO products (product_id, shop_id, name, price, unit, stock_qty, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                sample_products,
+            )
+            logger.info("Seeded sample products.")
+
+        conn.commit()
     finally:
         conn.close()
 
