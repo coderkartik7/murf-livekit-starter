@@ -163,6 +163,12 @@ def get_market_price_endpoint(
     return services.get_market_price(commodity=commodity, state=state, market=market)
 
 
+@app.get("/api/escalations")
+def get_escalations_endpoint():
+    """List all escalations, most recent first."""
+    return services.get_escalations()
+
+
 if __name__ == "__main__":
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
 

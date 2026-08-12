@@ -145,6 +145,23 @@ def init_db(db_path: Path | None = None) -> None:
             """
         )
 
+        # 9. escalations (escalation_id, caller_name, issue_type, summary, urgency, language, contact_method, status, created_at)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS escalations (
+                escalation_id  TEXT PRIMARY KEY,
+                caller_name    TEXT NOT NULL,
+                issue_type     TEXT NOT NULL,
+                summary        TEXT NOT NULL,
+                urgency        TEXT NOT NULL,
+                language       TEXT NOT NULL,
+                contact_method TEXT NOT NULL,
+                status         TEXT NOT NULL DEFAULT 'open',
+                created_at     TEXT NOT NULL
+            )
+            """
+        )
+
         conn.commit()
         logger.info("All database tables created successfully.")
 

@@ -71,6 +71,24 @@ GUARDRAILS
   don't have the information — say plainly that this is private business information you can't 
   share, e.g. "That's private business information, I'm not able to share that."
 
+ESCALATION
+Use create_escalation ONLY when a caller reports a payment dispute, refund request, order dispute, or credit/udhaar balance dispute that you cannot resolve yourself. Do NOT use it for normal questions like product availability, shop hours, or general queries.
+
+Before calling create_escalation, you MUST:
+1. Tell the caller exactly what you plan to include in the summary — issue type, a brief description of their concern, urgency level, and how they prefer to be contacted.
+2. Ask explicitly: "Is it okay if I log this for the owner with those details?"
+3. Only proceed if they clearly agree. If they say no or are unsure, do not create an escalation.
+
+Privacy rules — NEVER include any of the following in the summary field:
+- OTPs, PINs, or passwords
+- Full bank account or card numbers
+- Any sensitive personal authentication data
+
+After creating the escalation:
+- Tell the caller their reference ID (e.g. "Your reference number is ESC_AB12").
+- Say the shop owner will follow up with them.
+- Do NOT promise any specific timeframe for follow-up.
+
 STYLE
 Keep replies to one or two short sentences — this is spoken audio, not a chat window. No lists, no bullet points, no brackets, no sentence over about 20 words. Always confirm what you understood before treating an update as final. If the user goes quiet, gently check in rather than staying silent.
 """
@@ -279,6 +297,47 @@ class Assistant(Agent):
         import services
         logger.info("Tool: get_market_price called for commodity=%s", commodity)
         return services.get_market_price(commodity, state, market)
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        caller_name: str,
+        issue_type: str,
+        summary: str,
+        urgency: str,
+        language: str,
+        contact_method: str,
+    ):
+        """Escalate an unresolved dispute to the shop owner for human follow-up.
+        Call this when a caller reports a payment dispute, refund request, order dispute,
+        or credit/udhaar balance dispute you cannot resolve yourself — NOT for normal questions.
+        BEFORE calling this tool, tell the caller what you will include in the summary and
+        ask for their explicit permission. Only call this tool after they agree.
+        Never include OTPs, PINs, passwords, or account numbers in the summary.
+
+        Args:
+            caller_name: Name of the caller raising the dispute.
+            issue_type: Category of the issue — one of: 'payment_dispute', 'refund_request',
+                        'order_dispute', 'udhaar_dispute'.
+            summary: Brief, factual description of the issue. No sensitive auth data.
+            urgency: Urgency level — 'low', 'medium', or 'high'.
+            language: Language the caller spoke in (e.g. 'English', 'Hindi').
+            contact_method: How the owner should reach the caller (e.g. 'phone callback', 'WhatsApp').
+        """
+        import services
+        logger.info(
+            "Tool: create_escalation called for caller=%s, issue=%s, urgency=%s",
+            caller_name, issue_type, urgency,
+        )
+        return services.create_escalation(
+            caller_name=caller_name,
+            issue_type=issue_type,
+            summary=summary,
+            urgency=urgency,
+            language=language,
+            contact_method=contact_method,
+        )
 
 
 server = AgentServer()

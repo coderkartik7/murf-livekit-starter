@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Search, RefreshCw, Send, CheckCircle2, AlertCircle, PhoneCall, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Plus, Search, RefreshCw, Send, CheckCircle2, AlertCircle, PhoneCall, MessageSquare, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
 
 interface FeatureModalProps {
   title: string;
@@ -46,6 +46,10 @@ export const FeatureModal: React.FC<FeatureModalProps> = ({ title, onClose }) =>
   const [stateName, setStateName] = useState('');
   const [marketResult, setMarketResult] = useState<any>(null);
 
+  // Escalations state
+  const [escalations, setEscalations] = useState<any[]>([]);
+  const [escalationsLoading, setEscalationsLoading] = useState(false);
+
   // Initial data loading for tabs/lists
   useEffect(() => {
     if (title === 'Credit Tracker') {
@@ -56,6 +60,8 @@ export const FeatureModal: React.FC<FeatureModalProps> = ({ title, onClose }) =>
       fetchDailySummary();
     } else if (title === 'Shop Hours') {
       fetchShopInfo();
+    } else if (title === 'Escalations') {
+      fetchEscalations();
     }
   }, [title]);
 
@@ -111,6 +117,21 @@ export const FeatureModal: React.FC<FeatureModalProps> = ({ title, onClose }) =>
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const fetchEscalations = async () => {
+    setEscalationsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/escalations`);
+      const data = await res.json();
+      if (data.status === 'success') {
+        setEscalations(data.escalations || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setEscalationsLoading(false);
     }
   };
 
@@ -654,6 +675,102 @@ export const FeatureModal: React.FC<FeatureModalProps> = ({ title, onClose }) =>
               </div>
             )}
           </form>
+        )}
+
+        {/* Escalations — Owner Read-Only View */}
+        {title === 'Escalations' && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-[#1A1512]/60 leading-relaxed">
+                Disputes and unresolved issues escalated by the voice agent. The owner should follow up directly.
+              </p>
+              <button
+                type="button"
+                onClick={fetchEscalations}
+                className="p-1.5 rounded-lg text-[#1A1512]/50 hover:text-[#C1502E] hover:bg-[#F0E4D3]/60 transition-colors cursor-pointer shrink-0"
+                title="Refresh"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+
+            {escalationsLoading ? (
+              <p className="text-xs text-[#1A1512]/60 text-center py-4">Loading escalations...</p>
+            ) : escalations.length === 0 ? (
+              <div className="text-center py-6 flex flex-col items-center gap-2">
+                <ShieldAlert className="w-8 h-8 text-[#1A1512]/20" />
+                <p className="text-xs text-[#1A1512]/50">No open escalations. All disputes resolved!</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
+                {escalations.map((esc) => {
+                  const urgencyColors: Record<string, string> = {
+                    high: 'bg-rose-100 text-rose-800',
+                    medium: 'bg-amber-100 text-amber-800',
+                    low: 'bg-emerald-100 text-emerald-800',
+                  };
+                  const statusColors: Record<string, string> = {
+                    open: 'bg-blue-100 text-blue-800',
+                    resolved: 'bg-emerald-100 text-emerald-800',
+                    closed: 'bg-[#1A1512]/10 text-[#1A1512]/60',
+                  };
+                  const urgencyClass = urgencyColors[esc.urgency?.toLowerCase()] ?? 'bg-gray-100 text-gray-700';
+                  const statusClass = statusColors[esc.status?.toLowerCase()] ?? 'bg-gray-100 text-gray-700';
+
+                  return (
+                    <div
+                      key={esc.escalation_id}
+                      className="p-3 bg-[#F0E4D3]/40 rounded-xl border border-[#1A1512]/10 flex flex-col gap-2"
+                    >
+                      {/* Header row: ref ID + badges */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <ShieldAlert className="w-3.5 h-3.5 text-[#C1502E] shrink-0" />
+                          <span className="text-[11px] font-bold text-[#C1502E] font-mono tracking-widest">
+                            {esc.escalation_id}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md ${urgencyClass}`}>
+                            {esc.urgency}
+                          </span>
+                          <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md ${statusClass}`}>
+                            {esc.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Caller + issue type */}
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-[#1A1512]">{esc.caller_name}</span>
+                        <span className="text-[10px] font-semibold text-[#1A1512]/60 italic">
+                          {esc.issue_type.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+
+                      {/* Summary */}
+                      <p className="text-xs text-[#1A1512]/80 leading-relaxed border-l-2 border-[#C1502E]/30 pl-2">
+                        {esc.summary}
+                      </p>
+
+                      {/* Footer: contact method + date */}
+                      <div className="flex items-center justify-between text-[10px] text-[#1A1512]/50">
+                        <span>Contact via: <strong className="text-[#1A1512]/70">{esc.contact_method}</strong></span>
+                        <span>
+                          {new Date(esc.created_at).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Interactive UI for voice-first features */}

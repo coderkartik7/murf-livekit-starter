@@ -733,3 +733,84 @@ def get_market_price(commodity: str, state: str | None = None, market: str | Non
         }
 
 
+def create_escalation(
+    caller_name: str,
+    issue_type: str,
+    summary: str,
+    urgency: str,
+    language: str,
+    contact_method: str,
+) -> dict:
+    """Insert a human-escalation record and return a reference ID like 'ESC_XXXX'.
+
+    Used by both the voice agent tool and can be called from tests.
+    """
+    logger.info(
+        "Service: create_escalation for caller='%s', issue_type='%s'",
+        caller_name,
+        issue_type,
+    )
+    conn = sqlite3.connect(str(_DB_PATH))
+    try:
+        cursor = conn.cursor()
+        raw_id = uuid.uuid4().hex[:4].upper()
+        escalation_id = f"ESC_{raw_id}"
+        created_at = datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            INSERT INTO escalations (
+                escalation_id, caller_name, issue_type, summary,
+                urgency, language, contact_method, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
+            """,
+            (
+                escalation_id,
+                caller_name.strip(),
+                issue_type.strip(),
+                summary.strip(),
+                urgency.strip(),
+                language.strip(),
+                contact_method.strip(),
+                created_at,
+            ),
+        )
+        conn.commit()
+        return {
+            "status": "success",
+            "reference_id": escalation_id,
+            "escalation_id": escalation_id,
+            "caller_name": caller_name.strip(),
+            "issue_type": issue_type.strip(),
+            "summary": summary.strip(),
+            "urgency": urgency.strip(),
+            "language": language.strip(),
+            "contact_method": contact_method.strip(),
+            "escalation_status": "open",
+            "created_at": created_at,
+            "message": (
+                f"Escalation created. Your reference ID is {escalation_id}. "
+                "The shop owner will follow up with you."
+            ),
+        }
+    except Exception as e:
+        logger.exception("Failed to create escalation")
+        return {"status": "error", "message": str(e)}
+    finally:
+        conn.close()
+
+
+def get_escalations() -> dict:
+    """Fetch all escalation records, most recent first."""
+    logger.info("Service: get_escalations called")
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM escalations ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        return {"status": "success", "escalations": [dict(r) for r in rows]}
+    except Exception as e:
+        logger.exception("Failed to get escalations")
+        return {"status": "error", "message": str(e)}
+    finally:
+        conn.close()

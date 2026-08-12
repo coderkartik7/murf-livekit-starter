@@ -11,7 +11,8 @@ import {
   MapPin,
   MessageSquare,
   Gift,
-  Volume2
+  Volume2,
+  ShieldAlert
 } from 'lucide-react';
 
 export interface FeatureCard {
@@ -51,6 +52,11 @@ export const OWNER_FEATURES: FeatureCard[] = [
     icon: <TrendingUp className="w-6 h-6 text-[#C1502E]" />,
     title: 'Market Watch',
     desc: 'Track local competitor pricing and demand trends over time',
+  },
+  {
+    icon: <ShieldAlert className="w-6 h-6 text-[#C1502E]" />,
+    title: 'Escalations',
+    desc: 'Review open disputes and unresolved issues flagged by the voice agent',
   },
 ];
 
