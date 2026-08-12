@@ -48,6 +48,16 @@ def get_shop_info() -> dict:
     return get_shop_status("primary_shop")
 
 
+def get_low_stock_products(threshold: float = 5) -> list[dict]:
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM products WHERE stock_qty <= ?", (threshold,))
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
 def lookup_product(product_name: str) -> dict:
     """Search products table with case-insensitive partial matching.
 

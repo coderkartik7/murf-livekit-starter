@@ -1,7 +1,7 @@
 import logging
 
 from dotenv import load_dotenv
-from livekit import rtc
+from livekit import rtc, api
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -83,6 +83,30 @@ CUSTOMER_OBJECTIVES = """1. A customer gets an accurate answer about product ava
 2. Any request outside what the owner has explicitly told you (discounts, delivery promises, order confirmations) is politely deferred, never guessed.
 3. Let them leave a message if they want to get in touch with the shop owner."""
 
+OUTBOUND_GREETING = """Namaste! This is Dukaan Mitra, calling on behalf of your shop.
+I'm calling because {item} is running low on stock. If you'd like me to stop these calls, just say stop. 
+ Do you want me to note this as a restock reminder?"""
+
+async def make_outbound_call(phone_number: str, room_name: str, item_name: str = "an item"):
+    lkapi = api.LiveKitAPI()
+
+    await lkapi.agent_dispatch.create_dispatch(
+        api.CreateAgentDispatchRequest(
+            agent_name="my-agent",
+            room=room_name,
+            metadata=item_name,
+        )
+    )
+
+    await lkapi.sip.create_sip_participant(
+        api.CreateSIPParticipantRequest(
+            sip_trunk_id="ST_e7MNaacTy4sE",
+            sip_call_to=phone_number,
+            room_name=room_name,
+            participant_identity="outbound-call",
+        )
+    )
+    await lkapi.aclose()
 
 class Assistant(Agent):
     def __init__(self, instructions: str = SYSTEM_PROMPT, user_role: str = "customer") -> None:
@@ -257,18 +281,13 @@ class Assistant(Agent):
         return services.get_market_price(commodity, state, market)
 
 
-
-
 server = AgentServer()
-
 
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
     db.init_db()
 
-
 server.setup_fnc = prewarm
-
 
 @server.rtc_session(agent_name="my-agent")
 async def my_agent(ctx: JobContext):
@@ -288,8 +307,13 @@ async def my_agent(ctx: JobContext):
             user_role = participant.metadata
             break
 
+    if ctx.job.metadata:
+        greet_inst = f"Greet as Dukaan Mitra calling the shop owner. In the first two sentences say who is calling, why (that {ctx.job.metadata} is running low on stock), and that they can say 'stop' to end these calls. Then ask if they'd like it noted as a restock reminder."
+        role_obj = OWNER_OBJECTIVES
+        user_label = "shop owner"
+
     # Format objectives based on role
-    if user_role == "owner":
+    elif user_role == "owner":
         role_obj = OWNER_OBJECTIVES
         user_label = "shop owner"
         greet_inst = "Greet the user as Dukaan Mitra, briefly explain you help them run the shop by logging sales, tracking stock, and managing customer udhaar, then ask how you can help them today. Keep it short."
