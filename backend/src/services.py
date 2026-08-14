@@ -58,6 +58,99 @@ def get_low_stock_products(threshold: float = 5) -> list[dict]:
     finally:
         conn.close()
 
+
+def update_stock(
+    item_name: str,
+    quantity: float,
+    unit: str = "",
+    price: float = 0.0,
+    user_role: str = "owner",
+) -> dict:
+    """Update stock quantity for a product in inventory (add quantity to existing stock or create product).
+    
+    Enforces role restriction: requires user_role == 'owner'.
+    """
+    logger.info(
+        "Service: update_stock called by role='%s' for item='%s', qty=%s, unit='%s', price=%s",
+        user_role, item_name, quantity, unit, price,
+    )
+    if user_role != "owner":
+        return {
+            "status": "error",
+            "message": "Access denied: Only the shop owner can update stock."
+        }
+
+    clean_name = item_name.strip()
+    clean_unit = unit.strip() if unit else "unit"
+    qty_to_add = int(quantity)
+    now = datetime.now(timezone.utc).isoformat()
+
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM products WHERE LOWER(name) LIKE LOWER(?) ORDER BY LENGTH(name) ASC",
+            (f"%{clean_name}%",),
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+            rec = dict(existing)
+            prod_id = rec["product_id"]
+            new_qty = rec["stock_qty"] + qty_to_add
+            new_price = float(price) if price > 0 else rec["price"]
+            use_unit = clean_unit if unit else rec["unit"]
+
+            cursor.execute(
+                """
+                UPDATE products
+                SET stock_qty = ?, price = ?, unit = ?, last_updated = ?
+                WHERE product_id = ?
+                """,
+                (new_qty, new_price, use_unit, now, prod_id),
+            )
+            conn.commit()
+            logger.info("Service: Updated existing product '%s' (%s) new stock_qty=%d", rec["name"], prod_id, new_qty)
+            return {
+                "status": "success",
+                "product_id": prod_id,
+                "name": rec["name"],
+                "added_qty": qty_to_add,
+                "new_stock_qty": new_qty,
+                "price": new_price,
+                "unit": use_unit,
+                "message": f"Successfully added {qty_to_add} {use_unit} to {rec['name']}. Total stock is now {new_qty}."
+            }
+        else:
+            prod_id = f"prod_{uuid.uuid4().hex[:6]}"
+            product_name = clean_name.title()
+            cursor.execute(
+                """
+                INSERT INTO products (product_id, shop_id, name, price, unit, stock_qty, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (prod_id, "primary_shop", product_name, float(price), clean_unit, qty_to_add, now),
+            )
+            conn.commit()
+            logger.info("Service: Created new product '%s' (%s) with stock_qty=%d", product_name, prod_id, qty_to_add)
+            return {
+                "status": "success",
+                "product_id": prod_id,
+                "name": product_name,
+                "added_qty": qty_to_add,
+                "new_stock_qty": qty_to_add,
+                "price": float(price),
+                "unit": clean_unit,
+                "message": f"Successfully created new item {product_name} with {qty_to_add} {clean_unit} in stock."
+            }
+    except Exception as e:
+        logger.exception("Failed to update stock for item '%s'", item_name)
+        return {"status": "error", "message": f"Database error updating stock: {str(e)}"}
+    finally:
+        conn.close()
+
+
 def lookup_product(product_name: str) -> dict:
     """Search products table with case-insensitive partial matching.
 
@@ -154,6 +247,112 @@ def check_order_status(query: str) -> dict:
         return {"status": "error", "message": str(e)}
     finally:
         conn.close()
+
+
+def get_all_orders() -> dict:
+    """Fetch all placed orders, most recent first."""
+    logger.info("Service: get_all_orders called")
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orders ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        orders_list = []
+        for r in rows:
+            rec = dict(r)
+            try:
+                items = json.loads(rec["items_json"])
+            except Exception:
+                items = rec["items_json"]
+            orders_list.append({
+                "order_id": rec["order_id"],
+                "customer_user_id": rec["customer_user_id"],
+                "status": rec["status"],
+                "delivery_slot": rec["delivery_slot"],
+                "total": rec["total"],
+                "items": items,
+                "created_at": rec["created_at"],
+            })
+        return {"status": "success", "orders": orders_list, "count": len(orders_list)}
+    except Exception as e:
+        logger.exception("Failed to get all orders")
+        return {"status": "error", "message": str(e)}
+    finally:
+        conn.close()
+
+
+
+def place_order(
+    customer_name: str,
+    item_name: str,
+    quantity: float,
+    delivery_slot: str = "Standard Delivery",
+    contact_phone: str = "",
+    user_id: str = "",
+) -> dict:
+    """Place a new customer order in the database.
+    
+    Looks up item price in products table if present to calculate total.
+    Inserts order into orders table with status 'Confirmed'.
+    """
+    logger.info(
+        "Service: place_order called for customer='%s', item='%s', qty=%s, slot='%s'",
+        customer_name, item_name, quantity, delivery_slot,
+    )
+    clean_item = item_name.strip()
+    qty_val = float(quantity)
+    customer_id = user_id.strip() or f"user_{customer_name.strip().lower().replace(' ', '_')}"
+    if not customer_id:
+        customer_id = "customer_anon"
+
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM products WHERE LOWER(name) LIKE LOWER(?)",
+            (f"%{clean_item}%",),
+        )
+        prod_row = cursor.fetchone()
+        unit_price = prod_row["price"] if prod_row else 50.0
+        item_unit = prod_row["unit"] if prod_row else "item"
+
+        total_amt = round(unit_price * qty_val, 2)
+        order_id = f"ord_{uuid.uuid4().hex[:6]}"
+        now = datetime.now(timezone.utc).isoformat()
+        slot_text = delivery_slot.strip() if delivery_slot else "Standard Delivery (Today)"
+        items_json = json.dumps([{"name": clean_item, "qty": qty_val, "unit": item_unit, "price": unit_price}], ensure_ascii=False)
+
+        cursor.execute(
+            """
+            INSERT INTO orders (order_id, customer_user_id, items_json, total, status, delivery_slot, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (order_id, customer_id, items_json, total_amt, "Confirmed", slot_text, now),
+        )
+        conn.commit()
+        logger.info("Service: Created order %s for customer %s, total ₹%s", order_id, customer_id, total_amt)
+
+        return {
+            "status": "success",
+            "order_id": order_id,
+            "customer_name": customer_name.strip(),
+            "customer_user_id": customer_id,
+            "item_name": clean_item,
+            "quantity": qty_val,
+            "unit": item_unit,
+            "total": total_amt,
+            "order_status": "Confirmed",
+            "delivery_slot": slot_text,
+            "message": f"Order {order_id} placed successfully for {qty_val} {item_unit} of {clean_item}. Total amount is ₹{total_amt}. Delivery slot: {slot_text}."
+        }
+    except Exception as e:
+        logger.exception("Failed to place order for customer '%s'", customer_name)
+        return {"status": "error", "message": f"Failed to place order: {str(e)}"}
+    finally:
+        conn.close()
+
 
 
 def log_sale(item_name: str, quantity: float, unit: str, amount: float, user_role: str = "owner") -> dict:
@@ -811,6 +1010,99 @@ def get_escalations() -> dict:
         return {"status": "success", "escalations": [dict(r) for r in rows]}
     except Exception as e:
         logger.exception("Failed to get escalations")
+        return {"status": "error", "message": str(e)}
+    finally:
+        conn.close()
+
+
+def get_call_stats() -> dict:
+    """Aggregate stats from the `calls` table for the dashboard.
+
+    Returns total, successful, failed counts, success rate, and a
+    failure_reason breakdown dict — all with no caller PII.
+    """
+    logger.info("Service: get_call_stats called")
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+
+        # Totals
+        cursor.execute("SELECT COUNT(*) as total FROM calls")
+        total = cursor.fetchone()["total"]
+
+        cursor.execute("SELECT COUNT(*) as cnt FROM calls WHERE outcome = 'success'")
+        successful = cursor.fetchone()["cnt"]
+
+        failed = total - successful
+        success_rate = round((successful / total * 100), 1) if total > 0 else 0.0
+
+        # Failure reason breakdown
+        cursor.execute(
+            """
+            SELECT failure_reason, COUNT(*) as cnt
+            FROM calls
+            WHERE outcome = 'failed'
+            GROUP BY failure_reason
+            ORDER BY cnt DESC
+            """
+        )
+        failure_rows = cursor.fetchall()
+        failure_breakdown = {
+            (r["failure_reason"] or "unknown"): r["cnt"] for r in failure_rows
+        }
+
+        # Channel breakdown
+        cursor.execute(
+            """
+            SELECT channel, COUNT(*) as cnt
+            FROM calls
+            GROUP BY channel
+            """
+        )
+        channel_rows = cursor.fetchall()
+        channel_breakdown = {r["channel"]: r["cnt"] for r in channel_rows}
+
+        return {
+            "status": "success",
+            "total": total,
+            "successful": successful,
+            "failed": failed,
+            "success_rate": success_rate,
+            "failure_breakdown": failure_breakdown,
+            "channel_breakdown": channel_breakdown,
+        }
+    except Exception as e:
+        logger.exception("Failed to get call stats")
+        return {"status": "error", "message": str(e)}
+    finally:
+        conn.close()
+
+
+def get_recent_calls(limit: int = 50) -> dict:
+    """Return the last `limit` calls — time, channel, duration, outcome only.
+
+    No caller name or any other PII is included.
+    """
+    logger.info("Service: get_recent_calls called (limit=%d)", limit)
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT call_id, channel, started_at, ended_at,
+                   duration_seconds, outcome, failure_reason
+            FROM calls
+            ORDER BY started_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cursor.fetchall()
+        return {"status": "success", "calls": [dict(r) for r in rows]}
+    except Exception as e:
+        logger.exception("Failed to get recent calls")
         return {"status": "error", "message": str(e)}
     finally:
         conn.close()

@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dukaan Mitra — Call Dashboard</title>
+  <meta name="description" content="Live call outcome dashboard for Dukaan Mitra voice agent — track success rates, failure reasons, recent calls, and orders." />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Design tokens ── */
+    :root {
+      --bg:          #0b0e18;
+      --surface:     #111827;
+      --surface2:    #1a2235;
+      --border:      rgba(255,255,255,0.07);
+      --accent:      #6366f1;
+      --accent-glow: rgba(99,102,241,0.3);
+      --success:     #22c55e;
+      --success-dim: rgba(34,197,94,0.12);
+      --failed:      #ef4444;
+      --failed-dim:  rgba(239,68,68,0.12);
+      --warn:        #f59e0b;
+      --muted:       #6b7280;
+      --text:        #f1f5f9;
+      --text2:       #94a3b8;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      padding: 0 0 60px;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(12px);
+    }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .logo-mark {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent), #818cf8);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    header h1 span { color: var(--accent); }
+    .header-right {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--text2);
+    }
+    .refresh-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }
+
+    /* ── Layout ── */
+    main { max-width: 1200px; margin: 0 auto; padding: 32px 24px 0; }
+    section { margin-bottom: 36px; }
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text2);
+      margin-bottom: 16px;
+    }
+
+    /* ── Stat cards ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .stat-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+    }
+    .stat-card.total::before   { background: linear-gradient(90deg, var(--accent), #818cf8); }
+    .stat-card.success::before { background: linear-gradient(90deg, var(--success), #4ade80); }
+    .stat-card.failed::before  { background: linear-gradient(90deg, var(--failed), #f87171); }
+    .stat-card.rate::before    { background: linear-gradient(90deg, var(--warn), #fcd34d); }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text2);
+      margin-bottom: 10px;
+    }
+    .stat-value {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1;
+    }
+    .stat-card.total .stat-value   { color: #a5b4fc; }
+    .stat-card.success .stat-value { color: var(--success); }
+    .stat-card.failed .stat-value  { color: var(--failed); }
+    .stat-card.rate .stat-value    { color: var(--warn); }
+    .stat-sub {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    /* ── Middle row: chart + channel ── */
+    .middle-grid {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 16px;
+    }
+    @media (max-width: 768px) { .middle-grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* Failure bars */
+    .bar-list { display: flex; flex-direction: column; gap: 12px; }
+    .bar-meta {
+      display: flex; justify-content: space-between;
+      font-size: 12px; color: var(--text2);
+      margin-bottom: 5px;
+    }
+    .bar-meta .bar-label { text-transform: capitalize; }
+    .bar-meta .bar-count { font-weight: 600; color: var(--text); }
+    .bar-track {
+      height: 6px;
+      background: var(--surface2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--failed), #f87171);
+      transition: width 0.6s ease;
+    }
+
+    /* Channel breakdown */
+    .channel-list { display: flex; flex-direction: column; gap: 14px; }
+    .channel-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface2);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+    }
+    .channel-name {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 14px; font-weight: 600;
+    }
+    .channel-icon {
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .channel-icon.web { background: rgba(99,102,241,0.15); }
+    .channel-icon.sip { background: rgba(34,197,94,0.15); }
+    .channel-count {
+      font-size: 20px; font-weight: 800;
+      color: var(--text);
+    }
+
+    /* Chart container */
+    .chart-wrap {
+      position: relative;
+      height: 200px;
+    }
+
+    /* ── Tables ── */
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead {
+      background: var(--surface2);
+    }
+    th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text2);
+      white-space: nowrap;
+    }
+    td {
+      padding: 13px 16px;
+      border-top: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    tbody tr {
+      transition: background 0.15s;
+    }
+    tbody tr:hover { background: var(--surface2); }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .badge.success { background: var(--success-dim); color: var(--success); }
+    .badge.failed  { background: var(--failed-dim);  color: var(--failed); }
+    .badge.web     { background: rgba(99,102,241,0.15); color: #a5b4fc; }
+    .badge.sip     { background: rgba(34,197,94,0.12);  color: #4ade80; }
+    .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+    .reason-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      font-weight: 500;
+      background: rgba(255,255,255,0.05);
+      color: var(--text2);
+      text-transform: capitalize;
+    }
+    .duration { font-variant-numeric: tabular-nums; color: var(--text2); }
+
+    /* Loading / empty states */
+    .loading {
+      text-align: center;
+      padding: 30px 20px;
+      color: var(--text2);
+      font-size: 13px;
+    }
+    .spinner {
+      width: 22px; height: 22px;
+      border: 2.5px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty { text-align: center; padding: 30px; color: var(--text2); font-size: 13px; }
+
+    /* Last updated */
+    #last-updated { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo-mark">🏪</div>
+    <h1>Dukaan Mitra &mdash; <span>Call &amp; Order Dashboard</span></h1>
+  </div>
+  <div class="header-right">
+    <div class="refresh-dot"></div>
+    <span>Live &bull; refreshes every 30s</span>
+    <span id="last-updated"></span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Stats row ── -->
+  <section id="stats-section">
+    <div class="section-title">Overview</div>
+    <div class="stat-grid" id="stat-grid">
+      <div class="loading"><div class="spinner"></div>Loading stats…</div>
+    </div>
+  </section>
+
+  <!-- ── Chart + channel ── -->
+  <section>
+    <div class="section-title">Breakdown</div>
+    <div class="middle-grid">
+      <div class="card">
+        <div class="card-title"><span class="dot"></span> Failure Reason Distribution</div>
+        <div class="chart-wrap">
+          <canvas id="failure-chart"></canvas>
+        </div>
+        <div id="failure-bars" class="bar-list" style="margin-top:18px;"></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot"></span> Channel Breakdown</div>
+        <div class="channel-list" id="channel-list">
+          <div class="loading" style="padding:20px"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Recent calls ── -->
+  <section>
+    <div class="section-title">Recent Calls</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Channel</th>
+            <th>Duration</th>
+            <th>Outcome</th>
+            <th>Failure Reason</th>
+          </tr>
+        </thead>
+        <tbody id="calls-tbody">
+          <tr><td colspan="5" class="loading"><div class="spinner"></div>Loading calls…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Placed Orders ── -->
+  <section>
+    <div class="section-title">Placed Orders</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Order ID</th>
+            <th>Customer</th>
+            <th>Items</th>
+            <th>Total Amount</th>
+            <th>Delivery Slot</th>
+            <th>Status</th>
+            <th>Placed At</th>
+          </tr>
+        </thead>
+        <tbody id="orders-tbody">
+          <tr><td colspan="7" class="loading"><div class="spinner"></div>Loading orders…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  const BASE = "";
+  const REFRESH_MS = 30000;
+  let failureChart = null;
+
+  function fmt(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString("en-IN", {
+      day: "2-digit", month: "short",
+      hour: "2-digit", minute: "2-digit", hour12: true,
+    });
+  }
+
+  function fmtDuration(secs) {
+    if (secs == null) return "—";
+    if (secs < 60) return secs + "s";
+    return Math.floor(secs / 60) + "m " + (secs % 60) + "s";
+  }
+
+  function reasonLabel(r) {
+    if (!r) return "";
+    return r.replace(/_/g, " ");
+  }
+
+  function renderStats(d) {
+    const grid = document.getElementById("stat-grid");
+    grid.innerHTML = `
+      <div class="stat-card total">
+        <div class="stat-label">Total Calls</div>
+        <div class="stat-value">${d.total}</div>
+        <div class="stat-sub">all time</div>
+      </div>
+      <div class="stat-card success">
+        <div class="stat-label">Successful</div>
+        <div class="stat-value">${d.successful}</div>
+        <div class="stat-sub">completed with tool call</div>
+      </div>
+      <div class="stat-card failed">
+        <div class="stat-label">Failed</div>
+        <div class="stat-value">${d.failed}</div>
+        <div class="stat-sub">no useful interaction</div>
+      </div>
+      <div class="stat-card rate">
+        <div class="stat-label">Success Rate</div>
+        <div class="stat-value">${d.success_rate}<span style="font-size:22px;font-weight:600">%</span></div>
+        <div class="stat-sub">${d.total > 0 ? "based on " + d.total + " calls" : "no data yet"}</div>
+      </div>
+    `;
+  }
+
+  function renderFailures(breakdown) {
+    const barsEl = document.getElementById("failure-bars");
+    const entries = Object.entries(breakdown);
+
+    if (entries.length === 0) {
+      barsEl.innerHTML = "<div class='empty'>No failures recorded 🎉</div>";
+      if (failureChart) { failureChart.destroy(); failureChart = null; }
+      return;
+    }
+
+    const total = entries.reduce((s, [,v]) => s + v, 0);
+
+    barsEl.innerHTML = entries.map(([reason, cnt]) => `
+      <div class="bar-row">
+        <div class="bar-meta">
+          <span class="bar-label">${reasonLabel(reason)}</span>
+          <span class="bar-count">${cnt}</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.round(cnt/total*100)}%"></div>
+        </div>
+      </div>
+    `).join("");
+
+    const labels = entries.map(([r]) => reasonLabel(r));
+    const values = entries.map(([,v]) => v);
+    const colors = ["#ef4444","#f97316","#f59e0b","#a78bfa","#60a5fa","#34d399"];
+
+    const ctx = document.getElementById("failure-chart").getContext("2d");
+    if (failureChart) failureChart.destroy();
+
+    if (values.length === 0) return;
+
+    failureChart = new Chart(ctx, {
+      type: "doughnut",
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: colors.slice(0, values.length),
+          borderWidth: 0,
+          hoverOffset: 8,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "70%",
+        plugins: {
+          legend: {
+            position: "right",
+            labels: { color: "#94a3b8", font: { size: 12 }, padding: 14, boxWidth: 10 }
+          },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.label}: ${ctx.raw} (${Math.round(ctx.raw/total*100)}%)`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderChannels(breakdown) {
+    const el = document.getElementById("channel-list");
+    const entries = Object.entries(breakdown);
+    if (entries.length === 0) {
+      el.innerHTML = "<div class='empty'>No calls yet</div>";
+      return;
+    }
+    el.innerHTML = entries.map(([ch, cnt]) => `
+      <div class="channel-row">
+        <div class="channel-name">
+          <div class="channel-icon ${ch}">${ch === "sip" ? "📞" : "🌐"}</div>
+          <span>${ch === "sip" ? "SIP" : "Web"}</span>
+        </div>
+        <div class="channel-count">${cnt}</div>
+      </div>
+    `).join("");
+  }
+
+  function renderCalls(calls) {
+    const tbody = document.getElementById("calls-tbody");
+    if (!calls || calls.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty">No calls recorded yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = calls.map(c => `
+      <tr>
+        <td style="white-space:nowrap;color:var(--text2);font-size:12px">${fmt(c.started_at)}</td>
+        <td><span class="badge ${c.channel}">${c.channel === "sip" ? "📞 SIP" : "🌐 Web"}</span></td>
+        <td class="duration">${fmtDuration(c.duration_seconds)}</td>
+        <td>
+          <span class="badge ${c.outcome}">
+            <span class="badge-dot"></span>
+            ${c.outcome}
+          </span>
+        </td>
+        <td>${c.failure_reason ? `<span class="reason-tag">${reasonLabel(c.failure_reason)}</span>` : '<span style="color:var(--muted);font-size:12px">—</span>'}</td>
+      </tr>
+    `).join("");
+  }
+
+  function renderOrders(orders) {
+    const tbody = document.getElementById("orders-tbody");
+    if (!orders || orders.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">No orders placed yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = orders.map(o => {
+      let itemsStr = "";
+      if (Array.isArray(o.items)) {
+        itemsStr = o.items.map(i => `${i.qty || 1} ${i.unit || ''} ${i.name}`).join(", ");
+      } else {
+        itemsStr = String(o.items || "—");
+      }
+      const statusClass = (o.status || "").toLowerCase() === "confirmed" ? "success" : "web";
+      return `
+        <tr>
+          <td style="font-family:monospace;font-weight:600;color:var(--accent)">${o.order_id}</td>
+          <td style="font-weight:500">${o.customer_user_id}</td>
+          <td>${itemsStr}</td>
+          <td style="font-weight:700;color:var(--success)">₹${o.total}</td>
+          <td style="color:var(--text2);font-size:12px">${o.delivery_slot || 'Standard'}</td>
+          <td><span class="badge ${statusClass}">${o.status}</span></td>
+          <td style="white-space:nowrap;color:var(--text2);font-size:12px">${fmt(o.created_at)}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  async function fetchJSON(url, timeoutMs = 3000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      clearTimeout(timer);
+      return null;
+    }
+  }
+
+  async function refresh() {
+    const [stats, recent, orders] = await Promise.all([
+      fetchJSON(`${BASE}/api/calls/stats`),
+      fetchJSON(`${BASE}/api/calls/recent?limit=50`),
+      fetchJSON(`${BASE}/api/orders/all`),
+    ]);
+
+    if (stats && stats.status === "success") {
+      renderStats(stats);
+      renderFailures(stats.failure_breakdown || {});
+      renderChannels(stats.channel_breakdown || {});
+    }
+
+    if (recent && recent.status === "success") {
+      renderCalls(recent.calls || []);
+    } else {
+      document.getElementById("calls-tbody").innerHTML = `<tr><td colspan="5" class="empty">No calls recorded yet.</td></tr>`;
+    }
+
+    if (orders && orders.status === "success") {
+      renderOrders(orders.orders || []);
+    } else {
+      document.getElementById("orders-tbody").innerHTML = `<tr><td colspan="7" class="empty">No orders placed yet.</td></tr>`;
+    }
+
+    document.getElementById("last-updated").textContent =
+      "· Updated " + new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

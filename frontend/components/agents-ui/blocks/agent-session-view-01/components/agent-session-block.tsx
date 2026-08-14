@@ -116,6 +116,28 @@ export function AgentSessionView_01({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
 
+  // Measure the real rendered height of the bottom control bar so the transcript
+  // container always ends exactly above it — no hard-coded pixel guesses.
+  const controlBarRef = useRef<HTMLDivElement>(null);
+  const [controlBarHeight, setControlBarHeight] = useState(120); // sensible SSR default
+
+  useEffect(() => {
+    const el = controlBarRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        // Use borderBoxSize when available (most modern browsers), fall back to getBoundingClientRect
+        const height =
+          entry.borderBoxSize?.[0]?.blockSize ?? el.getBoundingClientRect().height;
+        setControlBarHeight(Math.ceil(height));
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // State mapping for DukaanMitra
   // States: 'connecting' | 'listening' | 'thinking' | 'speaking' | 'disconnected'
   const isDisconnected = !session.isConnected;
@@ -253,8 +275,12 @@ export function AgentSessionView_01({
         </div>
       </div>
 
-      {/* Transcript area */}
-      <div className="absolute top-20 bottom-[100px] flex w-full flex-col md:bottom-[110px] pointer-events-none">
+      {/* Transcript area — bottom is driven by the measured control-bar height so no
+          messages are ever obscured, regardless of viewport or keyboard state. */}
+      <div
+        className="absolute top-20 flex w-full flex-col pointer-events-none"
+        style={{ bottom: controlBarHeight }}
+      >
         <AnimatePresence>
           {chatOpen && (
             <motion.div
@@ -264,7 +290,7 @@ export function AgentSessionView_01({
               <AgentChatTranscript
                 agentState={agentState}
                 messages={messages}
-                className="mx-auto w-full max-w-3xl [&_.is-user>div]:bg-[#7A8B69] [&_.is-user>div]:text-white [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-16 md:[&>div>div]:px-6"
+                className="mx-auto w-full max-w-3xl [&_.is-user>div]:bg-[#7A8B69] [&_.is-user>div]:text-white [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-16 [&>div>div]:pb-4 md:[&>div>div]:px-6"
               />
             </motion.div>
           )}
@@ -287,6 +313,7 @@ export function AgentSessionView_01({
 
       {/* Bottom Control Area or Call Ended Reset */}
       <motion.div
+        ref={controlBarRef}
         {...BOTTOM_VIEW_MOTION_PROPS}
         className="absolute inset-x-2 bottom-6 z-50 md:inset-x-6"
       >

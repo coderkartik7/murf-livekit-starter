@@ -133,6 +133,21 @@ def init_db(db_path: Path | None = None) -> None:
             """
         )
 
+        # 10. calls — outcome tracking (channel, duration, outcome, failure_reason)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calls (
+                call_id          TEXT PRIMARY KEY,
+                channel          TEXT NOT NULL DEFAULT 'web',
+                started_at       TEXT NOT NULL,
+                ended_at         TEXT,
+                duration_seconds INTEGER,
+                outcome          TEXT NOT NULL DEFAULT 'failed',
+                failure_reason   TEXT
+            )
+            """
+        )
+
         # 8. shop_info (shop_id, hours_text, address_text, updated_at)
         conn.execute(
             """
@@ -290,3 +305,52 @@ async def upsert_caller(
         )
         await conn.commit()
         logger.info("Saved caller info for user_id=%s", user_id)
+
+
+async def insert_call_start(call_id: str, channel: str, started_at: str) -> None:
+    """Insert a new call row when a session begins.
+
+    Called at the start of my_agent() so we have a record even if the agent crashes.
+    """
+    async with aiosqlite.connect(str(_db_path)) as conn:
+        await conn.execute(
+            """
+            INSERT OR IGNORE INTO calls (call_id, channel, started_at, outcome)
+            VALUES (?, ?, ?, 'failed')
+            """,
+            (call_id, channel, started_at),
+        )
+        await conn.commit()
+    logger.info("Inserted call start: call_id=%s channel=%s", call_id, channel)
+
+
+async def update_call_end(
+    call_id: str,
+    ended_at: str,
+    duration_seconds: int,
+    outcome: str,
+    failure_reason: str | None,
+) -> None:
+    """Update the call row with end-of-call outcome data.
+
+    outcome must be 'success' or 'failed'.
+    failure_reason is one of: user_declined | incomplete | tool_error |
+    api_error | no_response | hangup  (or None for success).
+    """
+    async with aiosqlite.connect(str(_db_path)) as conn:
+        await conn.execute(
+            """
+            UPDATE calls
+            SET ended_at = ?,
+                duration_seconds = ?,
+                outcome = ?,
+                failure_reason = ?
+            WHERE call_id = ?
+            """,
+            (ended_at, duration_seconds, outcome, failure_reason, call_id),
+        )
+        await conn.commit()
+    logger.info(
+        "Updated call end: call_id=%s outcome=%s failure_reason=%s duration=%ss",
+        call_id, outcome, failure_reason, duration_seconds,
+    )

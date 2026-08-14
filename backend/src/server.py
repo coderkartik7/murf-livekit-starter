@@ -1,12 +1,15 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pathlib import Path
+from pydantic import BaseModel, Field
+from typing import Optional
 import uvicorn
 import services
 import db
 
 app = FastAPI(title="DukaanMitra API")
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,45 +18,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.on_event("startup")
-def startup_event():
-    # Make sure the database and tables exist at server startup too
-    db.init_db()
+_SRC_DIR = Path(__file__).resolve().parent
 
 
-@app.get("/api/shop-status")
-def shop_status(shop_id: str = "primary_shop"):
-    """Fetch status for the specified shop_id, using the shared services logic."""
-    result = services.get_shop_status(shop_id)
-    if result.get("status") == "error":
-        raise HTTPException(status_code=404, detail=result.get("message"))
-    return result
-
-
-@app.get("/api/shop/info")
-def shop_info():
-    """Fetch shop hours and address using the shared services logic."""
-    return services.get_shop_info()
-
-
-@app.get("/api/products/lookup")
-def product_lookup(name: str = Query(..., description="Product name or query")):
-    """Lookup product price, unit, and stock using the shared services logic."""
-    result = services.lookup_product(name)
-    return result
-
-
-@app.get("/api/orders/status")
-def order_status(query: str = Query(..., description="Order ID or Customer User ID")):
-    """Check order status and delivery slot using the shared services logic."""
-    result = services.check_order_status(query)
-    return result
-
-
-from pydantic import BaseModel, Field
-from typing import Optional
-
+# ── Pydantic models ────────────────────────────────────────────────────────────
 
 class SaleRequest(BaseModel):
     item_name: str
@@ -83,6 +51,102 @@ class ShopHoursRequest(BaseModel):
     shop_id: str = "primary_shop"
 
 
+# ── Startup ───────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+def startup_event():
+    db.init_db()
+
+
+# ── Shop ──────────────────────────────────────────────────────────────────────
+
+@app.get("/api/shop-status")
+def shop_status(shop_id: str = "primary_shop"):
+    """Fetch status for the specified shop_id."""
+    result = services.get_shop_status(shop_id)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=404, detail=result.get("message"))
+    return result
+
+
+@app.get("/api/shop/info")
+def shop_info():
+    """Fetch shop hours and address."""
+    return services.get_shop_info()
+
+
+@app.post("/api/shop/hours")
+def update_shop_hours_endpoint(req: ShopHoursRequest):
+    return services.update_shop_hours(
+        hours_text=req.hours_text,
+        address_text=req.address_text,
+        shop_id=req.shop_id,
+    )
+
+
+class StockUpdateRequest(BaseModel):
+    item_name: str
+    quantity: float
+    unit: Optional[str] = ""
+    price: Optional[float] = 0.0
+    user_role: str = "owner"
+
+
+# ── Products ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/products/lookup")
+def product_lookup(name: str = Query(..., description="Product name or query")):
+    return services.lookup_product(name)
+
+
+@app.post("/api/stock/update")
+def update_stock_endpoint(req: StockUpdateRequest):
+    return services.update_stock(
+        item_name=req.item_name,
+        quantity=req.quantity,
+        unit=req.unit or "",
+        price=req.price or 0.0,
+        user_role=req.user_role,
+    )
+
+
+
+class OrderPlaceRequest(BaseModel):
+    customer_name: str
+    item_name: str
+    quantity: float
+    delivery_slot: Optional[str] = "Standard Delivery"
+    contact_phone: Optional[str] = ""
+    user_id: Optional[str] = ""
+
+
+@app.get("/api/orders/all")
+def get_all_orders_endpoint():
+    """Fetch all placed orders."""
+    return services.get_all_orders()
+
+
+@app.get("/api/orders/status")
+def order_status(query: str = Query(..., description="Order ID or Customer User ID")):
+    return services.check_order_status(query)
+
+
+
+@app.post("/api/orders/place")
+def place_order_endpoint(req: OrderPlaceRequest):
+    return services.place_order(
+        customer_name=req.customer_name,
+        item_name=req.item_name,
+        quantity=req.quantity,
+        delivery_slot=req.delivery_slot or "Standard Delivery",
+        contact_phone=req.contact_phone or "",
+        user_id=req.user_id or "",
+    )
+
+
+
+# ── Sales ─────────────────────────────────────────────────────────────────────
+
 @app.post("/api/sales/log")
 def log_sale_endpoint(req: SaleRequest):
     return services.log_sale(
@@ -93,6 +157,8 @@ def log_sale_endpoint(req: SaleRequest):
         user_role=req.user_role,
     )
 
+
+# ── Credit / Udhaar ───────────────────────────────────────────────────────────
 
 @app.post("/api/credit/log")
 def log_credit_endpoint(req: CreditRequest):
@@ -115,6 +181,8 @@ def get_all_credit_balances_endpoint():
     return services.get_all_credit_balances()
 
 
+# ── Messages ──────────────────────────────────────────────────────────────────
+
 @app.post("/api/messages/leave")
 def leave_message_endpoint(req: MessageRequest):
     return services.leave_message_for_owner(
@@ -129,6 +197,8 @@ def get_messages_endpoint():
     return services.get_messages()
 
 
+# ── Call history (legacy call_log table) ──────────────────────────────────────
+
 @app.get("/api/calls/history")
 def get_call_history_endpoint(user_role: str = Query("owner", description="Caller role")):
     return services.get_call_history(user_role=user_role)
@@ -139,20 +209,14 @@ def get_customer_history_endpoint(user_role: str = Query("owner", description="C
     return services.get_customer_history(user_role=user_role)
 
 
+# ── Daily summary ─────────────────────────────────────────────────────────────
 
 @app.get("/api/daily-summary")
 def get_daily_summary_endpoint(date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format")):
     return services.get_daily_summary(date_str=date)
 
 
-@app.post("/api/shop/hours")
-def update_shop_hours_endpoint(req: ShopHoursRequest):
-    return services.update_shop_hours(
-        hours_text=req.hours_text,
-        address_text=req.address_text,
-        shop_id=req.shop_id,
-    )
-
+# ── Market price ──────────────────────────────────────────────────────────────
 
 @app.get("/api/market-price")
 def get_market_price_endpoint(
@@ -163,12 +227,36 @@ def get_market_price_endpoint(
     return services.get_market_price(commodity=commodity, state=state, market=market)
 
 
+# ── Escalations ───────────────────────────────────────────────────────────────
+
 @app.get("/api/escalations")
 def get_escalations_endpoint():
     """List all escalations, most recent first."""
     return services.get_escalations()
 
 
+# ── Dashboard API ─────────────────────────────────────────────────────────────
+
+@app.get("/api/calls/stats")
+def get_call_stats_endpoint():
+    """Aggregate call outcome stats for the dashboard (no PII)."""
+    return services.get_call_stats()
+
+
+@app.get("/api/calls/recent")
+def get_recent_calls_endpoint(limit: int = Query(50, ge=1, le=200)):
+    """Recent calls list: time, channel, duration, outcome only (no PII)."""
+    return services.get_recent_calls(limit=limit)
+
+
+@app.get("/dashboard", response_class=FileResponse)
+def serve_dashboard():
+    """Serve the self-contained call outcome dashboard HTML page."""
+    html_path = _SRC_DIR / "dashboard.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="dashboard.html not found")
+    return FileResponse(str(html_path), media_type="text/html")
+
+
 if __name__ == "__main__":
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
-

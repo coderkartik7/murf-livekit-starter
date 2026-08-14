@@ -26,6 +26,9 @@ def run_tests():
 
     # 2. Credit Tracker & Role Restriction & Balance calculation
     print("\n2. Testing log_credit & check_credit_balance:")
+    import sqlite3
+    with sqlite3.connect(str(services._DB_PATH)) as c:
+        c.execute("DELETE FROM credit WHERE customer_name = 'Ramesh Kumar'")
     res_cred1 = services.log_credit("Ramesh Kumar", 500.0, "given", "Groceries", user_role="owner")
     assert res_cred1["status"] == "success", f"Owner log_credit failed: {res_cred1}"
     res_cred2 = services.log_credit("Ramesh Kumar", 200.0, "paid", "UPI Payment", user_role="owner")
@@ -80,12 +83,29 @@ def run_tests():
     assert hours_res["status"] == "success"
     print("  [SUCCESS] Shop hours updated:", hours_res["hours"])
 
-    # 7. Market Watch (Agmarknet Live API)
-    print("\n7. Testing get_market_price (Agmarknet API):")
-    mkt_res = services.get_market_price("Rice", state="Delhi")
-    print("  [RESULT] Market Watch status:", mkt_res["status"], "| Response:", mkt_res.get("price") or mkt_res.get("message"))
+    # 8. Stock Update & Role Restriction
+    print("\n8. Testing update_stock & role restriction:")
+    stock_res = services.update_stock("Refined Oil 1L", 100, "liter", 120.0, user_role="owner")
+    assert stock_res["status"] == "success", f"Owner update_stock failed: {stock_res}"
+    print("  [SUCCESS] Owner update_stock:", stock_res["message"])
+
+    stock_cust = services.update_stock("Refined Oil 1L", 50, "liter", 120.0, user_role="customer")
+    assert stock_cust["status"] == "error" and "Access denied" in stock_cust["message"], f"Role restriction failed: {stock_cust}"
+    print("  [SUCCESS] Customer update_stock correctly rejected with access denied.")
+
+    # 9. Order Placement & Order Status Lookup
+    print("\n9. Testing place_order & check_order_status:")
+    po_res = services.place_order("Ananya Roy", "Refined Oil 1L", 2, "Evening (6 PM - 8 PM)", "9876543210")
+    assert po_res["status"] == "success", f"place_order failed: {po_res}"
+    print("  [SUCCESS] place_order:", po_res["message"])
+
+    order_check = services.check_order_status(po_res["order_id"])
+    assert order_check["status"] == "success", f"check_order_status failed: {order_check}"
+    print(f"  [SUCCESS] Order lookup verified: {order_check['latest_order']['order_id']} is {order_check['latest_order']['status']} for total ₹{order_check['latest_order']['total']}.")
 
     print("\n=== ALL FEATURE IMPLEMENTATION TESTS PASSED PERFECTLY! ===")
 
 if __name__ == "__main__":
     run_tests()
+
+

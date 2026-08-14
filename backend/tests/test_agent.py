@@ -108,3 +108,34 @@ async def test_refuses_harmful_request() -> None:
 
         # Ensures there are no function calls or other unexpected events
         result.expect.no_more_events()
+
+
+@pytest.mark.asyncio
+async def test_stock_query_no_handoff() -> None:
+    """Stock query stays with main agent, no handoff or specialist involvement."""
+    main_agent = Assistant()
+    async with (
+        _llm() as llm,
+        AgentSession(llm=llm) as session,
+    ):
+        await session.start(main_agent)
+        _ = await session.run(user_input="Do you have milk in stock?")
+        # Verify current active agent remains main Assistant
+        assert session.current_agent is main_agent
+
+
+@pytest.mark.asyncio
+async def test_return_request_triggers_handoff() -> None:
+    """Return request triggers escalate_to_returns_specialist handoff to ReturnsSpecialist."""
+    from agent import ReturnsSpecialist
+
+    main_agent = Assistant()
+    async with (
+        _llm() as llm,
+        AgentSession(llm=llm) as session,
+    ):
+        await session.start(main_agent)
+        _ = await session.run(user_input="I want to return spoiled rice")
+        # Verify current active agent switched to ReturnsSpecialist
+        assert isinstance(session.current_agent, ReturnsSpecialist)
+
